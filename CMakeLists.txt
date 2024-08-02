@@ -4,6 +4,8 @@ project(TestRenderer)
 
 set(SOURCES
     main.cpp
+    shader.hpp
+    shader.cpp
     )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
