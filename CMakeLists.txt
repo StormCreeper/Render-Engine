@@ -6,11 +6,12 @@ set(SOURCES
     main.cpp
     shader.hpp
     shader.cpp
-    tinyfiledialogs.c
+    scene_node.hpp
+    mesh.hpp
 
+    tinyfiledialogs.c
     stb_image.h
     tinyfiledialogs.h
-
     )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
