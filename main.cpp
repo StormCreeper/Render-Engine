@@ -14,6 +14,8 @@
 #include "scene_node.hpp"
 #include "mesh.hpp"
 
+#include "debug_ui.hpp"
+
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -130,8 +132,8 @@ int main() {
     // Load shaders
 
     GLuint g_program = glCreateProgram();
-    loadShader(g_program, GL_VERTEX_SHADER, "../shaders/vertexShader.glsl");
-    loadShader(g_program, GL_FRAGMENT_SHADER, "../shaders/fragmentShader.glsl");
+    loadShader(g_program, GL_VERTEX_SHADER, "../shaders/main/vertex.glsl");
+    loadShader(g_program, GL_FRAGMENT_SHADER, "../shaders/main/fragment.glsl");
     glLinkProgram(g_program);
 
     // MPV Matrices
@@ -139,6 +141,10 @@ int main() {
     glm::mat4 model = glm::mat4(1.0f);
     glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.2f, 1.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), 1400.0f / 800.0f, 0.1f, 100.0f);
+
+    // Debug
+
+    DebugUI::init();
 
     // Main loop
     while (!glfwWindowShouldClose(window)) {
@@ -171,6 +177,8 @@ int main() {
         // Swap buffers
         glfwSwapBuffers(window);
     }
+
+    DebugUI::destroy();
 
     delete mesh;
 
