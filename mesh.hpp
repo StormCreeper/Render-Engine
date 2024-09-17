@@ -7,10 +7,21 @@
 #include <glm/glm.hpp>
 
 class Mesh {
+   public:
     GLuint vao, pos_vbo, norm_vbo, ebo;
+
+    std::vector<glm::vec3> positions;
+    std::vector<glm::vec3> normals;
+    std::vector<unsigned int> indices;
 
    public:
     Mesh(std::vector<glm::vec3> positions, std::vector<glm::vec3> normals, std::vector<unsigned int> indices) {
+        this->positions = positions;
+        this->normals = normals;
+        this->indices = indices;
+    }
+
+    void init_mesh() {
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
 
@@ -33,16 +44,21 @@ class Mesh {
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
     }
 
-    void render(const glm::mat4& parentTransform = glm::mat4(1.0f)) {
+    void render(GLuint shader, const glm::mat4& parentTransform = glm::mat4(1.0f)) {
+        setUniform(shader, "model", parentTransform);
         glBindVertexArray(vao);
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
     }
 
     ~Mesh() {
-        glDeleteBuffers(1, &pos_vbo);
-        glDeleteBuffers(1, &norm_vbo);
-        glDeleteBuffers(1, &ebo);
-        glDeleteVertexArrays(1, &vao);
+        if (pos_vbo)
+            glDeleteBuffers(1, &pos_vbo);
+        if (norm_vbo)
+            glDeleteBuffers(1, &norm_vbo);
+        if (ebo)
+            glDeleteBuffers(1, &ebo);
+        if (vao)
+            glDeleteVertexArrays(1, &vao);
     }
 };
 

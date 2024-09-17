@@ -10,6 +10,9 @@
 #include "imgui_impl_opengl3.h"
 
 #include "shader.hpp"
+#include "scene_descriptor.hpp"
+#include "scene_node.hpp"
+#include "mesh.hpp"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -17,33 +20,27 @@
 
 #include "tinyfiledialogs.h"
 
-struct Mesh {
-    std::vector<glm::vec3> positions;
-    std::vector<glm::vec3> normals;
-    std::vector<unsigned int> indices;
-};
-
-Mesh load_model(std::string& filepath) {
+Mesh* load_model(std::string& filepath) {
     Assimp::Importer importer;
 
     const aiScene* scene = importer.ReadFile(filepath, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices | aiProcess_GenNormals);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
         std::cerr << "Failed to load model: " << importer.GetErrorString() << std::endl;
-        return {};
+        return nullptr;
     }
 
-    Mesh mesh;
+    Mesh* mesh = new Mesh({}, {}, {});
     auto assimpMesh = scene->mMeshes[0];
     for (unsigned int i = 0; i < assimpMesh->mNumVertices; i++) {
-        mesh.positions.push_back({assimpMesh->mVertices[i].x, assimpMesh->mVertices[i].y, assimpMesh->mVertices[i].z});
-        mesh.normals.push_back({assimpMesh->mNormals[i].x, assimpMesh->mNormals[i].y, assimpMesh->mNormals[i].z});
+        mesh->positions.push_back({assimpMesh->mVertices[i].x, assimpMesh->mVertices[i].y, assimpMesh->mVertices[i].z});
+        mesh->normals.push_back({assimpMesh->mNormals[i].x, assimpMesh->mNormals[i].y, assimpMesh->mNormals[i].z});
     }
 
     for (unsigned int i = 0; i < assimpMesh->mNumFaces; i++) {
         aiFace face = assimpMesh->mFaces[i];
         for (unsigned int j = 0; j < face.mNumIndices; j++) {
-            mesh.indices.push_back(face.mIndices[j]);
+            mesh->indices.push_back(face.mIndices[j]);
         }
     }
 
@@ -115,31 +112,20 @@ int main() {
     std::string full_path = "/";
     std::string filepath = tinyfd_openFileDialog("Open Model", full_path.c_str(), 0, nullptr, nullptr, 0);
 
-    Mesh mesh = load_model(filepath);
+    Mesh* mesh = load_model(filepath);
 
-    // Create VAO, VBO, and EBO
-    unsigned int vao, pos_vbo, norm_vbo, ebo;
+    mesh->init_mesh();
 
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
+    // Scene tree
 
-    glGenBuffers(1, &pos_vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, pos_vbo);
-    glBufferData(GL_ARRAY_BUFFER, mesh.positions.size() * sizeof(glm::vec3), mesh.positions.data(), GL_STATIC_DRAW);
+    SceneNode* _root = new SceneNode{};
+    _root->m_meshes.push_back(mesh);
+    SceneNode* _subnode = new SceneNode{glm::translate(glm::mat4(1.0f), {0.1, 0, 0.1})};
+    _subnode->m_meshes.push_back(mesh);
+    _root->m_children.push_back(_subnode);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    glGenBuffers(1, &norm_vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, norm_vbo);
-    glBufferData(GL_ARRAY_BUFFER, mesh.normals.size() * sizeof(glm::vec3), mesh.normals.data(), GL_STATIC_DRAW);
-
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
-    glEnableVertexAttribArray(1);
-
-    glGenBuffers(1, &ebo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh.indices.size() * sizeof(unsigned int), mesh.indices.data(), GL_STATIC_DRAW);
+    SceneDescriptor g_scene{};
+    g_scene.scene_root = _root;
 
     // Load shaders
 
@@ -172,27 +158,24 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // Update rotation
-        model = glm::rotate(glm::mat4(1.0f), (float)glfwGetTime(), glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 view_transform = glm::rotate(glm::mat4(1.0f), (float)glfwGetTime(), glm::vec3(0.0f, 1.0f, 0.0f));
 
         // Draw quad
         glUseProgram(g_program);
-        setUniform(g_program, "model", model);
-        setUniform(g_program, "view", view);
+        setUniform(g_program, "model", glm::mat4{1.0f});
+        setUniform(g_program, "view", view * view_transform);
         setUniform(g_program, "projection", projection);
 
-        glBindVertexArray(vao);
-        glDrawElements(GL_TRIANGLES, mesh.indices.size(), GL_UNSIGNED_INT, 0);
+        g_scene.render(g_program);
 
         // Swap buffers
         glfwSwapBuffers(window);
     }
 
+    delete mesh;
+
     // Cleanup
     glDeleteProgram(g_program);
-    glDeleteBuffers(1, &pos_vbo);
-    glDeleteBuffers(1, &norm_vbo);
-    glDeleteBuffers(1, &ebo);
-    glDeleteVertexArrays(1, &vao);
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

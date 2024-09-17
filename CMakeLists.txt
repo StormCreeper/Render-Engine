@@ -7,7 +7,10 @@ set(SOURCES
     shader.hpp
     shader.cpp
     scene_node.hpp
+    scene_descriptor.hpp
     mesh.hpp
+    camera.hpp
+    debug_ui.hpp
 
     tinyfiledialogs.c
     stb_image.h
