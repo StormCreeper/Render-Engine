@@ -13,6 +13,7 @@
 #include "scene_descriptor.hpp"
 #include "scene_node.hpp"
 #include "mesh.hpp"
+#include "event_system.hpp"
 
 #include "debug_ui.hpp"
 
@@ -49,92 +50,109 @@ Mesh* load_model(std::string& filepath) {
     return mesh;
 }
 
+GLFWwindow* g_window;
+GLuint g_program;
+SceneDescriptor g_scene{};
+Mesh* g_mesh;
+
 int main() {
-    // Initialize GLFW
-    if (!glfwInit()) {
-        std::cerr << "Failed to initialize GLFW" << std::endl;
-        return -1;
-    }
+    // Create events
 
-    // Create a GLFW window
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
+    EventSystem::register_event("startup");
+    EventSystem::register_event("init pre-opengl");
+    EventSystem::register_event("init UI");
+    EventSystem::register_event("init opengl");
+    EventSystem::register_event("init post-opengl");
+    EventSystem::register_event("pre-render");
 
-    GLFWwindow* window = glfwCreateWindow(1400, 800, "OpenGL Window", nullptr, nullptr);
-    if (!window) {
-        std::cerr << "Failed to create GLFW window" << std::endl;
+    EventSystem::register_event("destroy pre-opengl");
+    EventSystem::register_event("destroy post-opengl");
+
+    EventSystem::register_callback("init UI", []() {
+        // Initialize GLFW
+        if (!glfwInit()) {
+            std::cerr << "Failed to initialize GLFW" << std::endl;
+            exit(-1);
+        }
+
+        // Create a GLFW window
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
+
+        g_window = glfwCreateWindow(1400, 800, "OpenGL Window", nullptr, nullptr);
+        if (!g_window) {
+            std::cerr << "Failed to create GLFW window" << std::endl;
+            glfwTerminate();
+            exit(-1);
+        }
+
+        // Make the window's context current
+        glfwMakeContextCurrent(g_window);
+    });
+
+    EventSystem::register_callback("init opengl", []() {
+        // Initialize Glad
+        if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+            std::cerr << "Failed to initialize Glad" << std::endl;
+            exit(-1);
+        }
+
+        glEnable(GL_DEPTH_TEST);
+
+        // Setup ImGui context
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+        // Setup ImGui platform/renderer bindings
+        ImGui_ImplGlfw_InitForOpenGL(g_window, true);
+        ImGui_ImplOpenGL3_Init("#version 460");
+    });
+
+    EventSystem::register_callback("destroy pre-opengl", []() {
+        delete g_mesh;
+        DebugUI::destroy();
+        glDeleteProgram(g_program);
+    });
+
+    EventSystem::register_callback("destroy post-opengl", []() {
+        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
         glfwTerminate();
-        return -1;
-    }
+    });
 
-    // Make the window's context current
-    glfwMakeContextCurrent(window);
+    EventSystem::register_callback("init post-opengl", []() {
+        // Load model
+        std::string full_path = "/";
+        std::string filepath = tinyfd_openFileDialog("Open Model", full_path.c_str(), 0, nullptr, nullptr, 0);
 
-    // Initialize Glad
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cerr << "Failed to initialize Glad" << std::endl;
-        return -1;
-    }
+        g_mesh = load_model(filepath);
 
-    glEnable(GL_DEPTH_TEST);
+        g_mesh->init_mesh();
 
-    // Setup ImGui context
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        // Scene tree
 
-    // Setup ImGui platform/renderer bindings
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 460");
+        SceneNode* _root = new SceneNode{};
+        _root->m_meshes.push_back(g_mesh);
+        SceneNode* _subnode = new SceneNode{glm::translate(glm::mat4(1.0f), {0.1, 0, 0.1})};
+        _subnode->m_meshes.push_back(g_mesh);
+        _root->m_children.push_back(_subnode);
 
-    /*// Create quad mesh
-
-    std::vector<glm::vec3> positions = {
-        {-0.5f, -0.5f, 0.0f},
-        {0.5f, -0.5f, 0.0f},
-        {0.5f, 0.5f, 0.0f},
-        {-0.5f, 0.5f, 0.0f}};
-
-    std::vector<glm::vec2> texCoords = {
-        {0.0f, 0.0f},
-        {1.0f, 0.0f},
-        {1.0f, 1.0f},
-        {0.0f, 1.0f}};
-
-    std::vector<unsigned int> indices = {
-        0, 1, 2,
-        2, 3, 0};
-        */
-
-    // Load model
-
-    std::string full_path = "/";
-    std::string filepath = tinyfd_openFileDialog("Open Model", full_path.c_str(), 0, nullptr, nullptr, 0);
-
-    Mesh* mesh = load_model(filepath);
-
-    mesh->init_mesh();
-
-    // Scene tree
-
-    SceneNode* _root = new SceneNode{};
-    _root->m_meshes.push_back(mesh);
-    SceneNode* _subnode = new SceneNode{glm::translate(glm::mat4(1.0f), {0.1, 0, 0.1})};
-    _subnode->m_meshes.push_back(mesh);
-    _root->m_children.push_back(_subnode);
-
-    SceneDescriptor g_scene{};
-    g_scene.scene_root = _root;
+        g_scene.scene_root = _root;
+    });
 
     // Load shaders
 
-    GLuint g_program = glCreateProgram();
-    loadShader(g_program, GL_VERTEX_SHADER, "../shaders/main/vertex.glsl");
-    loadShader(g_program, GL_FRAGMENT_SHADER, "../shaders/main/fragment.glsl");
-    glLinkProgram(g_program);
+    EventSystem::register_callback("init post-opengl", []() {
+        g_program = glCreateProgram();
+        loadShader(g_program, GL_VERTEX_SHADER, "../shaders/main/vertex.glsl");
+        loadShader(g_program, GL_FRAGMENT_SHADER, "../shaders/main/fragment.glsl");
+        glLinkProgram(g_program);
+    });
 
     // MPV Matrices
 
@@ -144,10 +162,19 @@ int main() {
 
     // Debug
 
-    DebugUI::init();
+    EventSystem::register_callback("init post-opengl", []() {
+        DebugUI::init();
+    });
+
+    EventSystem::fire_event("startup");
+    EventSystem::fire_event("init pre-opengl");
+    EventSystem::fire_event("init UI");
+    EventSystem::fire_event("init opengl");
+    EventSystem::fire_event("init post-opengl");
+    EventSystem::fire_event("pre-render");
 
     // Main loop
-    while (!glfwWindowShouldClose(window)) {
+    while (!glfwWindowShouldClose(g_window)) {
         // Poll events
         glfwPollEvents();
 
@@ -175,20 +202,12 @@ int main() {
         g_scene.render(g_program);
 
         // Swap buffers
-        glfwSwapBuffers(window);
+        glfwSwapBuffers(g_window);
     }
 
-    DebugUI::destroy();
-
-    delete mesh;
-
     // Cleanup
-    glDeleteProgram(g_program);
-
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-    glfwTerminate();
+    EventSystem::fire_event("destroy pre-opengl");
+    EventSystem::fire_event("destroy post-opengl");
 
     return 0;
 }

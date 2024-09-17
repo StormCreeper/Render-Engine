@@ -11,6 +11,7 @@ set(SOURCES
     mesh.hpp
     camera.hpp
     debug_ui.hpp
+    event_system.hpp
 
     tinyfiledialogs.c
     stb_image.h
