@@ -12,6 +12,7 @@ set(SOURCES
     camera.hpp
     debug_ui.hpp
     event_system.hpp
+    framebuffer.hpp
 
     tinyfiledialogs.c
     stb_image.h

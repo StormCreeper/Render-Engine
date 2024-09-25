@@ -14,6 +14,7 @@
 #include "scene_node.hpp"
 #include "mesh.hpp"
 #include "event_system.hpp"
+#include "framebuffer.hpp"
 
 #include "debug_ui.hpp"
 
@@ -22,6 +23,8 @@
 #include <assimp/postprocess.h>
 
 #include "tinyfiledialogs.h"
+
+#include "constants.hpp"
 
 Mesh* load_model(std::string& filepath) {
     Assimp::Importer importer;
@@ -52,8 +55,12 @@ Mesh* load_model(std::string& filepath) {
 
 GLFWwindow* g_window;
 GLuint g_program;
+GLuint g_quadprogram;
+
 SceneDescriptor g_scene{};
 Mesh* g_mesh;
+QuadMesh* g_quadmesh;
+FrameBuffer* g_framebuffer;
 
 int main() {
     // Create events
@@ -82,7 +89,7 @@ int main() {
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
         glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
 
-        g_window = glfwCreateWindow(1400, 800, "OpenGL Window", nullptr, nullptr);
+        g_window = glfwCreateWindow(Constants::window_width, Constants::window_height, "OpenGL Window", nullptr, nullptr);
         if (!g_window) {
             std::cerr << "Failed to create GLFW window" << std::endl;
             glfwTerminate();
@@ -101,6 +108,8 @@ int main() {
         }
 
         glEnable(GL_DEPTH_TEST);
+        glEnable(GL_DEBUG_OUTPUT);
+        glDebugMessageCallback(GLDebugMessageCallback, NULL);
 
         // Setup ImGui context
         ImGui::CreateContext();
@@ -114,8 +123,11 @@ int main() {
 
     EventSystem::register_callback("destroy pre-opengl", []() {
         delete g_mesh;
+        delete g_quadmesh;
+        delete g_framebuffer;
         DebugUI::destroy();
         glDeleteProgram(g_program);
+        glDeleteProgram(g_quadprogram);
     });
 
     EventSystem::register_callback("destroy post-opengl", []() {
@@ -131,8 +143,10 @@ int main() {
         std::string filepath = tinyfd_openFileDialog("Open Model", full_path.c_str(), 0, nullptr, nullptr, 0);
 
         g_mesh = load_model(filepath);
-
         g_mesh->init_mesh();
+
+        g_quadmesh = new QuadMesh();
+        g_quadmesh->init_mesh();
 
         // Scene tree
 
@@ -143,6 +157,8 @@ int main() {
         _root->m_children.push_back(_subnode);
 
         g_scene.scene_root = _root;
+
+        g_framebuffer = new FrameBuffer();
     });
 
     // Load shaders
@@ -152,6 +168,11 @@ int main() {
         loadShader(g_program, GL_VERTEX_SHADER, "../shaders/main/vertex.glsl");
         loadShader(g_program, GL_FRAGMENT_SHADER, "../shaders/main/fragment.glsl");
         glLinkProgram(g_program);
+
+        g_quadprogram = glCreateProgram();
+        loadShader(g_quadprogram, GL_VERTEX_SHADER, "../shaders/quad/vertex.glsl");
+        loadShader(g_quadprogram, GL_FRAGMENT_SHADER, "../shaders/quad/fragment.glsl");
+        glLinkProgram(g_quadprogram);
     });
 
     // MPV Matrices
@@ -178,6 +199,27 @@ int main() {
         // Poll events
         glfwPollEvents();
 
+        // Update rotation
+        glm::mat4 view_transform = glm::rotate(glm::mat4(1.0f), (float)glfwGetTime(), glm::vec3(0.0f, 1.0f, 0.0f));
+
+        // First pass
+        g_framebuffer->bind();
+
+        // Set uniforms
+        glUseProgram(g_program);
+        setUniform(g_program, "model", glm::mat4{1.0f});
+        setUniform(g_program, "view", view * view_transform);
+        setUniform(g_program, "projection", projection);
+
+        // Clear the screen
+        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        g_scene.render(g_program);
+
+        // Second pass
+        g_framebuffer->unbind();
+
         // Start ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -186,20 +228,17 @@ int main() {
         // Render ImGui
         ImGui::Render();
 
-        // Clear the screen
-        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+        glUseProgram(g_quadprogram);
+        glClearColor(0.4f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Update rotation
-        glm::mat4 view_transform = glm::rotate(glm::mat4(1.0f), (float)glfwGetTime(), glm::vec3(0.0f, 1.0f, 0.0f));
+        setUniform(g_quadprogram, "screenTexture", 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, g_framebuffer->texture);
 
-        // Draw quad
-        glUseProgram(g_program);
-        setUniform(g_program, "model", glm::mat4{1.0f});
-        setUniform(g_program, "view", view * view_transform);
-        setUniform(g_program, "projection", projection);
+        g_quadmesh->render();
 
-        g_scene.render(g_program);
+        glBindTexture(GL_TEXTURE_2D, 0);
 
         // Swap buffers
         glfwSwapBuffers(g_window);
